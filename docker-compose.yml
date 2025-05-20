@@ -1,0 +1,29 @@
+version: '3.8'
+services:
+  melotts-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: melotts-server
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    environment:
+      - DEFAULT_SPEED=1
+      - DEFAULT_LANGUAGE=EN
+      - DEFAULT_SPEAKER_ID=EN-Default
+      - ONEAPI_DEVICE_SELECTOR=level_zero:gpu
+      - INTEL_DEVICE_TYPE=gpu
+      - USE_IPEX=1
+    volumes:
+      - /dev/dri:/dev/dri
+    devices:
+      - /dev/dri
+    networks:
+      video_generation:
+        ipv4_address: 10.20.0.2
+
+networks:
+  video_generation:
+    external: true
+    name: "Video Generation"
