@@ -12,9 +12,8 @@ services:
       - DEFAULT_SPEED=1
       - DEFAULT_LANGUAGE=EN
       - DEFAULT_SPEAKER_ID=EN-Default
-      - ONEAPI_DEVICE_SELECTOR=level_zero:gpu
-      - INTEL_DEVICE_TYPE=gpu
-      - USE_IPEX=1
+      - LIBVA_DRIVER_NAME=iHD
+      - LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri
     volumes:
       - /dev/dri:/dev/dri
     devices:
