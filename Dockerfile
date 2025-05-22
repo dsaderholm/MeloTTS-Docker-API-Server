@@ -7,11 +7,15 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PyTorch with Intel GPU support first (this must come before other requirements)
-RUN pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/xpu
+# First, let's try a more stable approach with specific compatible versions
+# Install PyTorch 2.1.0 with Intel GPU support (more stable than nightly)
+RUN pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cpu
 
-# Install Intel Extension for PyTorch for GPU acceleration
-RUN pip install intel-extension-for-pytorch
+# Install Intel Extension for PyTorch with specific compatible version
+RUN pip install intel-extension-for-pytorch==2.1.0
+
+# Alternative: If the above fails, try the oneAPI approach
+# RUN pip install torch torchvision torchaudio intel-extension-for-pytorch -f https://developer.intel.com/ipex-whl-stable-cpu
 
 # Copy requirements and create a filtered version without conflicting packages
 COPY requirements.txt .
@@ -25,7 +29,7 @@ RUN grep -v "^torch==" requirements.txt | \
 # Install filtered requirements
 RUN pip install -r requirements_filtered.txt
 
-# Install tensorboard separately (compatible version)
+# Install compatible tensorboard
 RUN pip install tensorboard
 
 # Clone and install MeloTTS

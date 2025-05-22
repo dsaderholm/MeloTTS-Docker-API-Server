@@ -8,32 +8,64 @@ from dotenv import load_dotenv
 import tempfile
 import torch
 import logging
+import sys
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Intel GPU support
+# Intel GPU support with comprehensive error handling
 intel_gpu_available = False
 intel_gpu_name = "Unknown"
+ipex_loaded = False
 
-try:
-    import intel_extension_for_pytorch as ipex
-    intel_gpu_available = True
-    logger.info("✅ Intel Extension for PyTorch loaded successfully")
+def safe_gpu_init():
+    """Safely initialize Intel GPU support with extensive error handling"""
+    global intel_gpu_available, intel_gpu_name, ipex_loaded
     
-    # Check if XPU is actually available
-    if torch.xpu.is_available():
-        intel_gpu_name = ipex.xpu.get_device_name(0)
-        logger.info(f"✅ Intel XPU device detected: {intel_gpu_name}")
-    else:
-        logger.warning("⚠️ Intel Extension for PyTorch loaded but XPU device not available")
-        intel_gpu_available = False
+    logger.info(f"🔍 PyTorch version: {torch.__version__}")
+    
+    # Step 1: Try to import Intel Extension for PyTorch
+    try:
+        import intel_extension_for_pytorch as ipex
+        ipex_loaded = True
+        logger.info("✅ Intel Extension for PyTorch imported successfully")
         
-except ImportError as e:
-    logger.warning(f"⚠️ Intel Extension for PyTorch not available: {e}")
-except Exception as e:
-    logger.error(f"❌ Error initializing Intel GPU support: {e}")
+        # Step 2: Check for XPU availability
+        try:
+            if hasattr(torch, 'xpu'):
+                logger.info("✅ torch.xpu module found")
+                if torch.xpu.is_available():
+                    intel_gpu_available = True
+                    intel_gpu_name = ipex.xpu.get_device_name(0)
+                    logger.info(f"🚀 Intel XPU device available: {intel_gpu_name}")
+                    
+                    # Step 3: Test basic GPU operations
+                    try:
+                        test_tensor = torch.tensor([1.0, 2.0, 3.0]).to('xpu')
+                        logger.info("✅ Basic GPU tensor operations successful")
+                        return True
+                    except Exception as tensor_error:
+                        logger.error(f"❌ GPU tensor operations failed: {tensor_error}")
+                        intel_gpu_available = False
+                        return False
+                else:
+                    logger.warning("⚠️ torch.xpu found but no XPU device available")
+            else:
+                logger.warning("⚠️ torch.xpu module not found in PyTorch")
+        except Exception as xpu_error:
+            logger.error(f"❌ XPU availability check failed: {xpu_error}")
+            intel_gpu_available = False
+            
+    except ImportError as import_error:
+        logger.warning(f"⚠️ Intel Extension for PyTorch not available: {import_error}")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error during GPU initialization: {e}")
+    
+    return False
+
+# Initialize GPU support
+gpu_success = safe_gpu_init()
 
 load_dotenv()
 DEFAULT_SPEED = float(os.getenv("DEFAULT_SPEED", 1.0))
@@ -42,7 +74,7 @@ DEFAULT_SPEAKER_ID = os.getenv("DEFAULT_SPEAKER_ID", "EN-Default")
 
 # Determine the best device to use
 def get_optimal_device():
-    if intel_gpu_available and torch.xpu.is_available():
+    if gpu_success and intel_gpu_available:
         logger.info(f"🚀 Using Intel GPU: {intel_gpu_name}")
         return "xpu"
     else:
@@ -68,24 +100,28 @@ def get_tts_model(body: TextModel):
     if cache_key not in model_cache:
         try:
             logger.info(f"🔄 Creating TTS model for language: {body.language}, device: {device}")
-            model = TTS(language=body.language, device=device)
+            
+            # Create model with explicit device setting
+            if device == "xpu":
+                # Try GPU first
+                try:
+                    model = TTS(language=body.language, device="xpu")
+                    logger.info(f"✅ TTS model created successfully for {body.language} on GPU")
+                except Exception as gpu_error:
+                    logger.warning(f"⚠️ GPU model creation failed: {gpu_error}")
+                    logger.info("🔄 Falling back to CPU...")
+                    model = TTS(language=body.language, device="cpu")
+                    cache_key = f"{body.language}_cpu"  # Update cache key
+                    logger.info(f"✅ TTS model created successfully for {body.language} on CPU (fallback)")
+            else:
+                model = TTS(language=body.language, device="cpu")
+                logger.info(f"✅ TTS model created successfully for {body.language} on CPU")
+            
             model_cache[cache_key] = model
-            logger.info(f"✅ TTS model created successfully for {body.language}")
+            
         except Exception as e:
             logger.error(f"❌ Failed to create TTS model: {e}")
-            # Fallback to CPU if GPU fails
-            if device == "xpu":
-                logger.info("🔄 Falling back to CPU...")
-                try:
-                    model = TTS(language=body.language, device="cpu")
-                    model_cache[f"{body.language}_cpu"] = model
-                    logger.info("✅ CPU fallback successful")
-                    return model
-                except Exception as cpu_error:
-                    logger.error(f"❌ CPU fallback also failed: {cpu_error}")
-                    raise HTTPException(status_code=500, detail=f"Failed to initialize TTS model: {str(e)}")
-            else:
-                raise HTTPException(status_code=500, detail=f"Failed to initialize TTS model: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to initialize TTS model: {str(e)}")
     
     return model_cache[cache_key]
 
@@ -109,7 +145,7 @@ async def create_upload_file(
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
             output_path = tmp.name
             
-            # Generate speech with the model (on GPU if available)
+            # Generate speech with the model
             model.tts_to_file(
                 body.text, speaker_ids[body.speaker_id], output_path, speed=body.speed
             )
@@ -137,10 +173,13 @@ async def health_check():
     return {
         "status": "healthy",
         "device": device,
-        "intel_gpu_available": intel_gpu_available and torch.xpu.is_available() if intel_gpu_available else False,
+        "intel_gpu_available": intel_gpu_available,
         "intel_gpu_name": intel_gpu_name if intel_gpu_available else None,
+        "ipex_loaded": ipex_loaded,
         "torch_version": torch.__version__,
+        "python_version": sys.version,
         "models_cached": len(model_cache),
+        "gpu_init_success": gpu_success,
         "supported_languages": ["EN", "ES", "FR", "ZH", "JP", "KR"]
     }
 
@@ -150,6 +189,7 @@ async def root():
         "message": "MeloTTS API with Intel GPU Support",
         "device": device,
         "intel_gpu": intel_gpu_name if device == "xpu" else "Not used",
+        "status": "GPU enabled" if gpu_success else "CPU only",
         "endpoints": {
             "POST /convert/tts": "Convert text to speech",
             "GET /health": "Check API health and GPU status",
@@ -161,12 +201,15 @@ if __name__ == "__main__":
     print("🎵 MeloTTS API Server with Intel Arc GPU Support")
     print("="*60)
     print(f"📊 PyTorch Version: {torch.__version__}")
+    print(f"🔧 IPEX Loaded: {ipex_loaded}")
     print(f"🖥️  Device: {device}")
     if device == "xpu":
         print(f"🚀 Intel GPU: {intel_gpu_name}")
         print("✨ GPU acceleration enabled!")
     else:
         print("💻 Running on CPU")
+        if not gpu_success:
+            print("⚠️  GPU initialization failed - check logs above")
     print("="*60 + "\n")
     
     uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
