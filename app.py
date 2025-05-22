@@ -14,58 +14,54 @@ import sys
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Intel GPU support with comprehensive error handling
+# Intel Arc GPU support with IPEX-LLM optimization
 intel_gpu_available = False
 intel_gpu_name = "Unknown"
 ipex_loaded = False
 
-def safe_gpu_init():
-    """Safely initialize Intel GPU support with extensive error handling"""
+def production_gpu_init():
+    """Production-grade Intel Arc GPU initialization using IPEX-LLM stack"""
     global intel_gpu_available, intel_gpu_name, ipex_loaded
     
     logger.info(f"🔍 PyTorch version: {torch.__version__}")
     
-    # Step 1: Try to import Intel Extension for PyTorch
     try:
+        # Import Intel Extension for PyTorch (already available in base image)
         import intel_extension_for_pytorch as ipex
         ipex_loaded = True
-        logger.info("✅ Intel Extension for PyTorch imported successfully")
+        logger.info("✅ Intel Extension for PyTorch loaded from IPEX-LLM base image")
         
-        # Step 2: Check for XPU availability
-        try:
-            if hasattr(torch, 'xpu'):
-                logger.info("✅ torch.xpu module found")
-                if torch.xpu.is_available():
-                    intel_gpu_available = True
-                    intel_gpu_name = ipex.xpu.get_device_name(0)
-                    logger.info(f"🚀 Intel XPU device available: {intel_gpu_name}")
-                    
-                    # Step 3: Test basic GPU operations
-                    try:
-                        test_tensor = torch.tensor([1.0, 2.0, 3.0]).to('xpu')
-                        logger.info("✅ Basic GPU tensor operations successful")
-                        return True
-                    except Exception as tensor_error:
-                        logger.error(f"❌ GPU tensor operations failed: {tensor_error}")
-                        intel_gpu_available = False
-                        return False
-                else:
-                    logger.warning("⚠️ torch.xpu found but no XPU device available")
-            else:
-                logger.warning("⚠️ torch.xpu module not found in PyTorch")
-        except Exception as xpu_error:
-            logger.error(f"❌ XPU availability check failed: {xpu_error}")
-            intel_gpu_available = False
+        # Check XPU availability
+        if hasattr(torch, 'xpu') and torch.xpu.is_available():
+            device_count = torch.xpu.device_count()
+            logger.info(f"🚀 Found {device_count} Intel XPU device(s)")
             
-    except ImportError as import_error:
-        logger.warning(f"⚠️ Intel Extension for PyTorch not available: {import_error}")
+            # Get Arc GPU name
+            intel_gpu_name = ipex.xpu.get_device_name(0)
+            logger.info(f"🎯 Primary GPU: {intel_gpu_name}")
+            
+            # Test GPU operations
+            try:
+                test_tensor = torch.tensor([1.0, 2.0, 3.0], device="xpu")
+                result = test_tensor * 2
+                intel_gpu_available = True
+                logger.info("✅ Intel Arc GPU operations verified successfully")
+                return True
+            except Exception as e:
+                logger.error(f"❌ GPU operations test failed: {e}")
+                
+        else:
+            logger.warning("⚠️ torch.xpu not available or no XPU devices found")
+            
+    except ImportError as e:
+        logger.error(f"❌ Intel Extension for PyTorch import failed: {e}")
     except Exception as e:
-        logger.error(f"❌ Unexpected error during GPU initialization: {e}")
+        logger.error(f"❌ Unexpected GPU initialization error: {e}")
     
     return False
 
 # Initialize GPU support
-gpu_success = safe_gpu_init()
+gpu_success = production_gpu_init()
 
 load_dotenv()
 DEFAULT_SPEED = float(os.getenv("DEFAULT_SPEED", 1.0))
