@@ -5,17 +5,22 @@ RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
     fi
 
-# Install system dependencies including Intel GPU support
+# Install system dependencies including Intel GPU support and audio libraries
 RUN apt-get update && apt-get install -y \
     git wget unzip build-essential curl \
     intel-media-va-driver-non-free \
     vainfo intel-gpu-tools ffmpeg \
+    # Audio processing dependencies for librosa
+    libsndfile1-dev libsndfile1 \
+    libasound2-dev portaudio19-dev libportaudio2 \
     # MeCab and Japanese text processing
     mecab mecab-ipadic-utf8 libmecab-dev \
     # Additional language support
     locales locales-all \
     # Common build dependencies
     gnupg software-properties-common \
+    # Additional system libraries
+    pkg-config libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set locale for proper text handling
@@ -26,20 +31,20 @@ WORKDIR /app
 # Upgrade pip and install build tools
 RUN pip install --upgrade pip setuptools wheel
 
-# Install core dependencies first (PyTorch with Intel support)
+# Install core dependencies first (using versions from requirements.txt)
 RUN pip install --no-cache-dir \
-    torch==2.0.1 \
-    torchaudio==2.0.2 \
-    transformers==4.30.0 \
-    numpy==1.24.3
+    torch==1.13.1 \
+    torchaudio==0.13.1 \
+    transformers==4.27.4 \
+    numpy==1.26.4
 
-# Install Intel PyTorch Extension for Arc GPU support
-RUN pip install --no-cache-dir intel-extension-for-pytorch==2.0.100+xpu --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/ || \
-    pip install --no-cache-dir intel-extension-for-pytorch || \
+# Install Intel PyTorch Extension compatible with PyTorch 1.13.1
+RUN pip install --no-cache-dir intel-extension-for-pytorch==1.13.100 --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/ || \
+    pip install --no-cache-dir intel-extension-for-pytorch==1.13.100 || \
     echo "IPEX installation failed, continuing without GPU support"
 
-# Install MeCab Python wrapper BEFORE other packages
-RUN pip install --no-cache-dir mecab-python3==1.0.6
+# Install MeCab Python wrapper BEFORE other packages (version from requirements.txt)
+RUN pip install --no-cache-dir mecab-python3==1.0.5
 
 # Test MeCab installation immediately
 RUN python -c "import MeCab; print('MeCab basic test passed')" || echo "MeCab test failed, continuing"
@@ -58,21 +63,28 @@ except Exception as e: \
     print('Continuing without UniDic - will use system MeCab dictionary'); \
 " || true
 
-# Install remaining MeloTTS dependencies (the ones that were failing in your build)
-RUN pip install --no-cache-dir \
-    fastapi==0.100.0 \
-    uvicorn==0.23.0 \
-    librosa==0.10.1 \
-    jieba==0.42.1 \
-    pypinyin==0.49.0 \
-    cn2an==0.5.22 \
-    gruut==2.2.3 \
-    eng-to-ipa==0.0.2 \
-    unidecode==1.3.7 \
-    pydub==0.25.1 \
-    requests==2.31.0 \
-    pydantic==2.0.0 \
-    python-multipart==0.0.6
+# Install remaining MeloTTS dependencies using exact versions from requirements.txt
+# Core web framework packages first
+RUN pip install --no-cache-dir fastapi==0.110.0
+RUN pip install --no-cache-dir uvicorn==0.28.0  
+RUN pip install --no-cache-dir pydantic==2.6.4
+RUN pip install --no-cache-dir python-multipart==0.0.9
+RUN pip install --no-cache-dir requests==2.31.0
+
+# Audio processing packages (install soundfile first as dependency)
+RUN pip install --no-cache-dir soundfile==0.12.1
+RUN pip install --no-cache-dir librosa==0.9.1
+RUN pip install --no-cache-dir pydub==0.25.1
+
+# Text processing packages using exact versions from requirements.txt 
+RUN pip install --no-cache-dir jieba==0.42.1
+RUN pip install --no-cache-dir pypinyin==0.50.0
+RUN pip install --no-cache-dir Unidecode==1.3.7
+RUN pip install --no-cache-dir cn2an==0.5.22
+
+# Speech processing packages
+RUN pip install --no-cache-dir gruut==2.2.3
+RUN pip install --no-cache-dir eng-to-ipa==0.0.2
 
 # Install cached-path (known to cause issues, so install separately)
 RUN pip install --no-cache-dir cached-path==1.6.2 || echo "cached-path failed, continuing..."

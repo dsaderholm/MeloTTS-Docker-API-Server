@@ -1,0 +1,46 @@
+FROM python:3.10-slim
+
+# Fix Debian repositories to include non-free packages
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
+    fi
+
+# Install system dependencies including Intel GPU support and audio libraries
+RUN apt-get update && apt-get install -y \
+    git wget unzip build-essential curl \
+    intel-media-va-driver-non-free \
+    vainfo intel-gpu-tools ffmpeg \
+    # Audio processing dependencies for librosa\
+    libsndfile1-dev libsndfile1 \
+    libasound2-dev portaudio19-dev libportaudio2 \
+    # Additional system libraries\
+    pkg-config libffi-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Upgrade pip and install build tools
+RUN pip install --upgrade pip setuptools wheel
+
+# Test each package individually to find the problem
+RUN echo "Testing fastapi..." && pip install --no-cache-dir fastapi==0.100.0
+RUN echo "Testing uvicorn..." && pip install --no-cache-dir uvicorn==0.23.0  
+RUN echo "Testing librosa..." && pip install --no-cache-dir librosa==0.10.1
+RUN echo "Testing jieba..." && pip install --no-cache-dir jieba==0.42.1
+RUN echo "Testing pypinyin..." && pip install --no-cache-dir pypinyin==0.49.0
+RUN echo "Testing cn2an..." && pip install --no-cache-dir cn2an==0.5.22
+RUN echo "Testing gruut..." && pip install --no-cache-dir gruut==2.2.3
+RUN echo "Testing eng-to-ipa..." && pip install --no-cache-dir eng-to-ipa==0.0.2
+RUN echo "Testing unidecode..." && pip install --no-cache-dir unidecode==1.3.7
+RUN echo "Testing pydub..." && pip install --no-cache-dir pydub==0.25.1
+RUN echo "Testing requests..." && pip install --no-cache-dir requests==2.31.0
+RUN echo "Testing pydantic..." && pip install --no-cache-dir pydantic==2.0.0
+RUN echo "Testing python-multipart..." && pip install --no-cache-dir python-multipart==0.0.6
+
+RUN echo "All packages installed successfully!"
+
+# Copy app file for testing
+COPY app.py .
+
+EXPOSE 8080
+CMD ["echo", "Debug build completed successfully"]
