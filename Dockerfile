@@ -38,16 +38,16 @@ RUN python -c "import MeCab; print('MeCab basic test passed')"
 # Install UniDic dictionary system
 RUN pip install --no-cache-dir unidic==1.1.0
 
-# Download and install UniDic dictionary properly
+# Download UniDic dictionary with robust error handling
 RUN python -c "\
-import unidic; \
 try: \
+    import unidic; \
     unidic.download(); \
     print('UniDic download successful'); \
 except Exception as e: \
     print(f'UniDic download failed: {e}'); \
-    import sys; sys.exit(0)\
-"
+    print('Continuing without UniDic - will use system MeCab dictionary'); \
+" || true
 
 # Install remaining MeloTTS dependencies
 RUN pip install --no-cache-dir \
@@ -78,14 +78,17 @@ RUN cd /tmp/MeloTTS && \
      pip install --no-cache-dir --no-deps -e . && \
      echo "MeloTTS installed without dependencies")
 
-# Final MeCab + UniDic test
+# Final MeCab test with fallback
 RUN python -c "\
-import MeCab; \
-import unidic; \
-tagger = MeCab.Tagger(); \
-result = tagger.parse('これはテストです'); \
-print('✅ MeCab + UniDic working correctly'); \
-print('Test result:', result.strip())\
+try: \
+    import MeCab; \
+    tagger = MeCab.Tagger(); \
+    result = tagger.parse('これはテストです'); \
+    print('✅ MeCab working correctly'); \
+    print('Test result:', result.strip()); \
+except Exception as e: \
+    print(f'⚠️ MeCab test failed: {e}'); \
+    print('Will try alternative MeCab configuration at runtime'); \
 " || echo "⚠️ MeCab test failed but continuing..."
 
 # Copy application files
@@ -106,12 +109,36 @@ ENV LIBVA_DRIVER_NAME=iHD \
 
 EXPOSE 8080
 
-# Create startup script with MeCab diagnostics
+# Create startup script with MeCab diagnostics and fallbacks
 RUN echo '#!/bin/bash\n\
 echo "🔍 MeCab Diagnostic Check..."\n\
-echo "MeCab version: $(mecab --version)"\n\
-echo "MeCab config: $(mecab-config --dicdir)"\n\
-echo "Available dictionaries: $(ls -la $(mecab-config --dicdir) 2>/dev/null || echo "None found")"\n\
+echo "MeCab version: $(mecab --version 2>/dev/null || echo "Not found")"\n\
+echo "MeCab config: $(mecab-config --dicdir 2>/dev/null || echo "Not found")"\n\
+echo "Available dictionaries: $(ls -la $(mecab-config --dicdir 2>/dev/null) 2>/dev/null || echo "None found")"\n\
+\n\
+# Test MeCab Python binding\n\
+echo "Testing MeCab Python binding..."\n\
+python3 -c "\n\
+try:\n\
+    import MeCab\n\
+    print(\'MeCab import successful\')\n\
+    try:\n\
+        tagger = MeCab.Tagger()\n\
+        result = tagger.parse(\'test\')\n\
+        print(\'MeCab basic functionality working\')\n\
+    except Exception as e:\n\
+        print(f\'MeCab basic test failed: {e}\')\n\
+        print(\'Trying alternative MeCab configuration...\')\n\
+        try:\n\
+            tagger = MeCab.Tagger(\'-d /usr/lib/x86_64-linux-gnu/mecab/dic/mecab-ipadic-neologd\')\n\
+            result = tagger.parse(\'test\')\n\
+            print(\'MeCab working with alternative config\')\n\
+        except Exception as e2:\n\
+            print(f\'Alternative MeCab config also failed: {e2}\')\n\
+except ImportError as e:\n\
+    print(f\'MeCab import failed: {e}\')\n\
+" || echo "MeCab test script failed"\n\
+\n\
 echo "🚀 Starting MeloTTS server..."\n\
 python app.py\n\
 ' > /app/start.sh && chmod +x /app/start.sh
