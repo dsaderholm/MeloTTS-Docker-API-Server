@@ -137,13 +137,13 @@ EXPOSE 8080
 # Create startup script with GPU diagnostics and MeCab fallbacks
 RUN echo '#!/bin/bash\n\
 echo "🔍 System Diagnostic Check..."\n\
-echo "PyTorch version: $(python -c \"import torch; print(torch.__version__)\" 2>/dev/null || echo \"Not found\")"\n\
+echo "PyTorch version: $(python -c \"import torch; print(torch.__version__)\" 2>/dev/null || echo Not found)"\n\
 echo "Intel GPU check:"\n\
 python -c "\
 try:\
     import torch, intel_extension_for_pytorch as ipex;\
-    print(f\"✅ IPEX loaded, XPU available: {torch.xpu.is_available() if hasattr(torch, '\''xpu'\'') else '\''No XPU module'\''}\");\
-    if hasattr(torch, '\''xpu'\'') and torch.xpu.is_available():\
+    print(f\"✅ IPEX loaded, XPU available: {torch.xpu.is_available() if hasattr(torch, 'xpu') else 'No XPU module'}\");\
+    if hasattr(torch, 'xpu') and torch.xpu.is_available():\
         print(f\"🚀 Intel GPU detected: {ipex.xpu.get_device_name(0)}\");\
 except Exception as e:\
     print(f\"⚠️ Intel GPU setup issue: {e}\");\
