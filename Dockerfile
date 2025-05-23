@@ -134,26 +134,5 @@ ENV LIBVA_DRIVER_NAME=iHD \
 
 EXPOSE 8080
 
-# Write the start.sh script safely using a heredoc to avoid quoting issues
-RUN cat << 'EOF' > /app/start.sh
-#!/bin/bash
-echo "🔍 System Diagnostic Check..."
-echo "PyTorch version: $(python -c \"import torch; print(torch.__version__)\")"
-echo "Intel GPU check:"
-python -c "
-try:
-    import torch, intel_extension_for_pytorch as ipex
-    print(f'✅ IPEX loaded, XPU available: {torch.xpu.is_available() if hasattr(torch, \"xpu\") else \"No XPU module\"}')
-    if hasattr(torch, 'xpu') and torch.xpu.is_available():
-        print(f'🚀 Intel GPU detected: {ipex.xpu.get_device_name(0)}')
-except Exception as e:
-    print(f'⚠️ Intel GPU setup issue: {e}')
-"
-echo "MeCab version: $(mecab --version 2>/dev/null || echo 'Not found')"
-echo "🚀 Starting MeloTTS server with Intel Arc GPU support..."
-python app.py
-EOF
-
-RUN chmod +x /app/start.sh
-
-CMD ["/app/start.sh"]
+# Simple startup command
+CMD ["python", "app.py"]
