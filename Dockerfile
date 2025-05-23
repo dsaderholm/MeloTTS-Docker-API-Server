@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     git wget unzip build-essential \
     intel-media-va-driver-non-free \
     vainfo intel-gpu-tools ffmpeg \
+    # MeCab dependencies for Japanese text processing
+    mecab mecab-ipadic-utf8 libmecab-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -36,7 +38,8 @@ RUN pip install --no-cache-dir \
     gruut==2.2.3 \
     eng-to-ipa==0.0.2 \
     unidecode==1.3.7 \
-    pydub==0.25.1
+    pydub==0.25.1 \
+    mecab-python3==1.0.6
 
 # Install remaining utilities
 RUN pip install --no-cache-dir \
@@ -50,11 +53,12 @@ RUN git clone https://github.com/myshell-ai/MeloTTS.git /tmp/MeloTTS && \
     sed -i 's/cached_path/#cached_path/' requirements.txt && \
     pip install --no-cache-dir -e . || true
 
-# Try alternative installation method if needed
-RUN pip install --no-cache-dir \
-    cached-path==1.6.2 \
-    mecab-python3==1.0.6 \
-    unidic-lite==1.0.8 || true
+# Install and configure UniDic dictionary for Japanese support
+RUN pip install --no-cache-dir unidic-lite==1.0.8 && \
+    python -c "import unidic; unidic.download()" || true
+
+# Install cached-path separately to avoid conflicts
+RUN pip install --no-cache-dir cached-path==1.6.2 || true
 
 # Copy application files
 COPY app.py .
