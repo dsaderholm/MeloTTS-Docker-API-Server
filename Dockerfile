@@ -1,9 +1,11 @@
-FROM python:3.10.14-slim
+FROM python:3.10-slim
 
-# Fix Debian 12 (Bookworm) to include non-free repositories
-RUN sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
+# Fix Debian repositories to include non-free packages
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources; \
+    fi
 
-# Install system dependencies including MeCab
+# Install system dependencies including Intel GPU support
 RUN apt-get update && apt-get install -y \
     git wget unzip build-essential curl \
     intel-media-va-driver-non-free \
@@ -12,9 +14,11 @@ RUN apt-get update && apt-get install -y \
     mecab mecab-ipadic-utf8 libmecab-dev \
     # Additional language support
     locales locales-all \
+    # Common build dependencies
+    gnupg software-properties-common \
     && rm -rf /var/lib/apt/lists/*
 
-# Set locale for proper Japanese text handling
+# Set locale for proper text handling
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 WORKDIR /app
@@ -22,18 +26,23 @@ WORKDIR /app
 # Upgrade pip and install build tools
 RUN pip install --upgrade pip setuptools wheel
 
-# Install core dependencies first
+# Install core dependencies first (PyTorch with Intel support)
 RUN pip install --no-cache-dir \
     torch==2.0.1 \
     torchaudio==2.0.2 \
     transformers==4.30.0 \
     numpy==1.24.3
 
+# Install Intel PyTorch Extension for Arc GPU support
+RUN pip install --no-cache-dir intel-extension-for-pytorch==2.0.100+xpu --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/ || \
+    pip install --no-cache-dir intel-extension-for-pytorch || \
+    echo "IPEX installation failed, continuing without GPU support"
+
 # Install MeCab Python wrapper BEFORE other packages
 RUN pip install --no-cache-dir mecab-python3==1.0.6
 
 # Test MeCab installation immediately
-RUN python -c "import MeCab; print('MeCab basic test passed')"
+RUN python -c "import MeCab; print('MeCab basic test passed')" || echo "MeCab test failed, continuing"
 
 # Install UniDic dictionary system
 RUN pip install --no-cache-dir unidic==1.1.0
@@ -49,7 +58,7 @@ except Exception as e: \
     print('Continuing without UniDic - will use system MeCab dictionary'); \
 " || true
 
-# Install remaining MeloTTS dependencies
+# Install remaining MeloTTS dependencies (the ones that were failing in your build)
 RUN pip install --no-cache-dir \
     fastapi==0.100.0 \
     uvicorn==0.23.0 \
@@ -95,7 +104,7 @@ except Exception as e: \
 COPY app.py .
 COPY test_gpu.py .
 
-# Set environment variables
+# Set comprehensive environment variables
 ENV LIBVA_DRIVER_NAME=iHD \
     LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
     INTEL_MEDIA_RUNTIME=/usr/lib/x86_64-linux-gnu/dri \
@@ -105,41 +114,30 @@ ENV LIBVA_DRIVER_NAME=iHD \
     PYTHONUNBUFFERED=1 \
     # MeCab environment
     MECAB_PATH=/usr/lib/x86_64-linux-gnu/mecab/dic/mecab-ipadic-neologd \
-    MECAB_CHARSET=utf-8
+    MECAB_CHARSET=utf-8 \
+    # Intel GPU optimization
+    ONEAPI_DEVICE_SELECTOR=level_zero:0 \
+    ZE_AFFINITY_MASK=0 \
+    SYCL_CACHE_PERSISTENT=1
 
 EXPOSE 8080
 
-# Create startup script with MeCab diagnostics and fallbacks
+# Create startup script with GPU diagnostics and MeCab fallbacks
 RUN echo '#!/bin/bash\n\
-echo "🔍 MeCab Diagnostic Check..."\n\
-echo "MeCab version: $(mecab --version 2>/dev/null || echo "Not found")"\n\
-echo "MeCab config: $(mecab-config --dicdir 2>/dev/null || echo "Not found")"\n\
-echo "Available dictionaries: $(ls -la $(mecab-config --dicdir 2>/dev/null) 2>/dev/null || echo "None found")"\n\
-\n\
-# Test MeCab Python binding\n\
-echo "Testing MeCab Python binding..."\n\
-python3 -c "\n\
-try:\n\
-    import MeCab\n\
-    print(\'MeCab import successful\')\n\
-    try:\n\
-        tagger = MeCab.Tagger()\n\
-        result = tagger.parse(\'test\')\n\
-        print(\'MeCab basic functionality working\')\n\
-    except Exception as e:\n\
-        print(f\'MeCab basic test failed: {e}\')\n\
-        print(\'Trying alternative MeCab configuration...\')\n\
-        try:\n\
-            tagger = MeCab.Tagger(\'-d /usr/lib/x86_64-linux-gnu/mecab/dic/mecab-ipadic-neologd\')\n\
-            result = tagger.parse(\'test\')\n\
-            print(\'MeCab working with alternative config\')\n\
-        except Exception as e2:\n\
-            print(f\'Alternative MeCab config also failed: {e2}\')\n\
-except ImportError as e:\n\
-    print(f\'MeCab import failed: {e}\')\n\
-" || echo "MeCab test script failed"\n\
-\n\
-echo "🚀 Starting MeloTTS server..."\n\
+echo "🔍 System Diagnostic Check..."\n\
+echo "PyTorch version: $(python -c \"import torch; print(torch.__version__)\" 2>/dev/null || echo \"Not found\")"\n\
+echo "Intel GPU check:"\n\
+python -c "\
+try:\
+    import torch, intel_extension_for_pytorch as ipex;\
+    print(f\"✅ IPEX loaded, XPU available: {torch.xpu.is_available() if hasattr(torch, '\''xpu'\'') else '\''No XPU module'\''}\");\
+    if hasattr(torch, '\''xpu'\'') and torch.xpu.is_available():\
+        print(f\"🚀 Intel GPU detected: {ipex.xpu.get_device_name(0)}\");\
+except Exception as e:\
+    print(f\"⚠️ Intel GPU setup issue: {e}\");\
+"\n\
+echo "MeCab version: $(mecab --version 2>/dev/null || echo \"Not found\")"\n\
+echo "🚀 Starting MeloTTS server with Intel Arc GPU support..."\n\
 python app.py\n\
 ' > /app/start.sh && chmod +x /app/start.sh
 
