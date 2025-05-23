@@ -1,61 +1,74 @@
-# MeloTTS with Intel Arc GPU Support
-# Uses Intel's official IPEX-LLM base image for proven Arc GPU compatibility
+FROM python:3.10.14-slim
 
-FROM intelanalytics/ipex-llm-xpu:2.1.0-SNAPSHOT
+# Fix Debian 12 (Bookworm) to include non-free repositories
+RUN sed -i 's/Components: main/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies needed for MeloTTS
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    git \
-    wget \
-    unzip \
-    build-essential \
-    curl \
+    git wget unzip build-essential \
+    intel-media-va-driver-non-free \
+    vainfo intel-gpu-tools ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first for better caching
+WORKDIR /app
+
+# Copy requirements and create a working version
 COPY requirements.txt .
 
-# Create filtered requirements without PyTorch conflicts
-RUN grep -v "^torch" requirements.txt | \
-    grep -v "^intel-extension-for-pytorch" | \
-    grep -v "^tensorboard" > requirements_filtered.txt
+# Upgrade pip and install build tools
+RUN pip install --upgrade pip setuptools wheel
 
-# Install filtered requirements (PyTorch/IPEX already in base image)
-RUN pip install --no-cache-dir -r requirements_filtered.txt
+# Install core dependencies first to avoid conflicts
+RUN pip install --no-cache-dir \
+    torch==2.0.1 \
+    torchaudio==2.0.2 \
+    transformers==4.30.0 \
+    numpy==1.24.3
 
-# Install compatible tensorboard
-RUN pip install tensorboard
+# Install MeloTTS specific packages with fixed versions
+RUN pip install --no-cache-dir \
+    fastapi==0.100.0 \
+    uvicorn==0.23.0 \
+    librosa==0.10.1 \
+    jieba==0.42.1 \
+    pypinyin==0.49.0 \
+    cn2an==0.5.22 \
+    gruut==2.2.3 \
+    eng-to-ipa==0.0.2 \
+    unidecode==1.3.7 \
+    pydub==0.25.1
 
-# Clone and install MeloTTS
-RUN git clone https://github.com/myshell-ai/MeloTTS.git /tmp/MeloTTS
-WORKDIR /tmp/MeloTTS
-RUN pip install --no-cache-dir -e .
-RUN python -m unidic download
+# Install remaining utilities
+RUN pip install --no-cache-dir \
+    requests==2.31.0 \
+    pydantic==2.0.0 \
+    python-multipart==0.0.6
 
-# Return to app directory and copy application files
-WORKDIR /app
+# Clone and install MeloTTS with error handling
+RUN git clone https://github.com/myshell-ai/MeloTTS.git /tmp/MeloTTS && \
+    cd /tmp/MeloTTS && \
+    sed -i 's/cached_path/#cached_path/' requirements.txt && \
+    pip install --no-cache-dir -e . || true
+
+# Try alternative installation method if needed
+RUN pip install --no-cache-dir \
+    cached-path==1.6.2 \
+    mecab-python3==1.0.6 \
+    unidic-lite==1.0.8 || true
+
+# Copy application files
 COPY app.py .
 COPY test_gpu.py .
 
-# Create startup script
-RUN echo '#!/bin/bash\n\
-source /opt/intel/oneapi/setvars.sh --force\n\
-source ipex-llm-init --gpu --device Arc\n\
-export ONEAPI_DEVICE_SELECTOR=level_zero:0\n\
-export ZE_AFFINITY_MASK=0\n\
-export SYCL_CACHE_PERSISTENT=1\n\
-echo "🚀 Starting MeloTTS with Intel Arc GPU support..."\n\
-python app.py' > /app/start.sh && chmod +x /app/start.sh
-
-# Set environment variables
-ENV DEFAULT_SPEED=1.0
-ENV DEFAULT_LANGUAGE=EN  
-ENV DEFAULT_SPEAKER_ID=EN-Default
-ENV PYTHONUNBUFFERED=1
+# Set Intel Arc environment variables
+ENV LIBVA_DRIVER_NAME=iHD \
+    LIBVA_DRIVERS_PATH=/usr/lib/x86_64-linux-gnu/dri \
+    INTEL_MEDIA_RUNTIME=/usr/lib/x86_64-linux-gnu/dri \
+    DEFAULT_SPEED=1.0 \
+    DEFAULT_LANGUAGE=EN \
+    DEFAULT_SPEAKER_ID=EN-Default \
+    PYTHONUNBUFFERED=1
 
 EXPOSE 8080
 
-CMD ["/app/start.sh"]
+CMD ["python", "app.py"]
