@@ -12,17 +12,24 @@ services:
       - DEFAULT_SPEED=1.0
       - DEFAULT_LANGUAGE=EN
       - DEFAULT_SPEAKER_ID=EN-Default
-      # Intel Arc GPU optimizations
+      # Intel Arc GPU AI/ML optimizations
       - ONEAPI_DEVICE_SELECTOR=level_zero:0
       - ZE_AFFINITY_MASK=0
       - SYCL_CACHE_PERSISTENT=1
+      - ZES_ENABLE_SYSMAN=1
+      - INTEL_GPU=true
+      - PYTORCH_TENSOREXPR_FALLBACK=1
+    # Critical: Map Intel GPU devices for AI/ML workloads
     devices:
       - /dev/dri:/dev/dri
     group_add:
       - video
-    # Resource limits for production
+      - render
+    # Resource limits for AI workloads
     mem_limit: 8g
     shm_size: 2g
+    # Enable privileged mode for GPU access (if needed)
+    # privileged: true
     networks:
       video_generation:
         ipv4_address: 10.20.0.2

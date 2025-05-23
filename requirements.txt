@@ -143,8 +143,11 @@ threadpoolctl==3.3.0
 tokenizers==0.13.3
 tomlkit==0.12.0
 toolz==0.12.1
-torch==1.13.1
-torchaudio==0.13.1
+# PyTorch 2.5+ with native Intel GPU support
+torch==2.5.1
+torchaudio==2.5.1
+# Intel Extension for PyTorch compatible with 2.5+
+intel-extension-for-pytorch==2.5.10+xpu
 tqdm==4.66.2
 transformers==4.27.4
 txtsplit==1.0.0
