@@ -14,10 +14,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install Python dependencies (now includes PyTorch 2.1.0 + IPEX)
+# Install Python dependencies (now includes PyTorch 1.13.1)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt \
-    --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Intel Extension for PyTorch separately
+RUN pip install --no-cache-dir intel-extension-for-pytorch==1.13.100+xpu \
+    --extra-index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/us/ || \
+    echo "Intel Extension installation failed, continuing without GPU support"
 
 # Clone and install MeloTTS
 RUN git clone https://github.com/myshell-ai/MeloTTS.git
